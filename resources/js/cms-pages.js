@@ -418,7 +418,6 @@ async function fetchGuests(render = true, weddingId = null) {
     }
     
     state.guests = guests;
-    console.log('fetchGuests - weddingId:', weddingId, 'guests count:', guests.length, guests);
     
     if (render) {
         renderGuestsTable();
@@ -706,11 +705,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (page === 'couple') {
         await fetchWeddings(false);
-        console.log('couple page - weddings:', state.weddings);
         
         // Para couple, pega automaticamente o primeiro (e único) casamento
         const coupleWeddingId = state.weddings[0]?.id || null;
-        console.log('couple page - coupleWeddingId:', coupleWeddingId);
         
         if (coupleWeddingId) {
             // Seta o wedding_id no input hidden
