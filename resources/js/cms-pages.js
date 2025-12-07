@@ -1,4 +1,4 @@
-import './bootstrap';
+﻿import './bootstrap';
 
 const state = {
     users: [],
@@ -84,7 +84,7 @@ function renderUsersTable() {
         <th style="text-align:left; padding: 6px;">Email</th>
         <th style="text-align:left; padding: 6px;">CPF</th>
         <th style="text-align:left; padding: 6px;">Papel</th>
-        <th style="padding: 6px;">Ações</th>
+        <th style="padding: 6px;">AÃ§Ãµes</th>
     </tr>`;
     table.appendChild(thead);
 
@@ -125,18 +125,18 @@ function bindUserForm() {
             name: fd.get('name'),
             email: fd.get('email'),
             cpf: fd.get('cpf'),
-            role: fd.get('role'),
+            role: 'couple',
             birth_date: fd.get('birth_date') || null,
             address_line: fd.get('address_line') || null,
             password: fd.get('password'),
         };
         try {
             await axios.post('/api/v1/users', payload);
-            setStatus('#user-form-status', 'Usuário salvo.', 'green');
+            setStatus('#user-form-status', 'Casal salvo.', 'green');
             form.reset();
             await fetchUsers(true);
         } catch (err) {
-            setStatus('#user-form-status', 'Erro ao salvar (CPF/email únicos?).', '#b84e00');
+            setStatus('#user-form-status', 'Erro ao salvar (CPF/email unicos?).', '#b84e00');
         }
     });
 }
@@ -181,11 +181,11 @@ function renderWeddingsTable() {
     table.style.borderCollapse = 'collapse';
     const thead = helpers.create('thead');
     thead.innerHTML = `<tr>
-        <th style="text-align:left; padding: 6px;">Título</th>
+        <th style="text-align:left; padding: 6px;">TÃ­tulo</th>
         <th style="text-align:left; padding: 6px;">Data</th>
         <th style="text-align:left; padding: 6px;">Local</th>
         <th style="text-align:left; padding: 6px;">Casais</th>
-        <th style="padding:6px;">Ações</th>
+        <th style="padding:6px;">AÃ§Ãµes</th>
     </tr>`;
     table.appendChild(thead);
 
@@ -273,7 +273,7 @@ function populateParentGuestSelect() {
     const select = helpers.qs('#parent-guest-select');
     if (!select) return;
     const current = select.value;
-    select.innerHTML = '<option value="">Responsável (pai/mãe)</option>';
+    select.innerHTML = '<option value="">ResponsÃ¡vel (pai/mÃ£e)</option>';
     state.guests
         .filter((g) => g.is_head_of_family || g.cpf)
         .forEach((g) => {
@@ -297,11 +297,11 @@ function renderGuestsTable() {
     thead.innerHTML = `<tr>
         <th style="text-align:left; padding: 6px;">Nome</th>
         <th style="text-align:left; padding: 6px;">CPF</th>
-        <th style="text-align:left; padding: 6px;">Código</th>
+        <th style="text-align:left; padding: 6px;">CÃ³digo</th>
         <th style="text-align:left; padding: 6px;">Status</th>
         <th style="text-align:left; padding: 6px;">Casamento</th>
-        <th style="text-align:left; padding: 6px;">Pai/Responsável</th>
-        <th style="padding:6px;">Ações</th>
+        <th style="text-align:left; padding: 6px;">Pai/ResponsÃ¡vel</th>
+        <th style="padding:6px;">AÃ§Ãµes</th>
     </tr>`;
     table.appendChild(thead);
 
@@ -418,7 +418,7 @@ function bindGuestForm() {
             dependentsContainer.innerHTML = '';
             await fetchGuests(true);
         } catch (err) {
-            setStatus('#guest-form-status', 'Erro ao salvar convidado. Verifique casamento/pai e CPF único.', '#b84e00');
+            setStatus('#guest-form-status', 'Erro ao salvar convidado. Verifique casamento/pai e CPF Ãºnico.', '#b84e00');
         }
     });
 }
@@ -460,3 +460,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
+

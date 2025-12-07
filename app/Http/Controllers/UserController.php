@@ -61,8 +61,10 @@ class UserController extends Controller
     private function validatedPayload(Request $request, ?User $user = null): array
     {
         $roleValues = collect(UserRole::cases())->pluck('value')->toArray();
+        $isSuperadmin = $this->isSuperadmin($request);
+        $allowedRoles = $isSuperadmin ? $roleValues : [UserRole::Couple->value];
 
-        return $request->validate([
+        $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => [
                 'required',
@@ -76,7 +78,7 @@ class UserController extends Controller
                 'size:11',
                 Rule::unique('users')->ignore($user?->id),
             ],
-            'role' => ['required', Rule::in($roleValues)],
+            'role' => ['required', Rule::in($allowedRoles)],
             'birth_date' => ['nullable', 'date'],
             'address_line' => ['nullable', 'string', 'max:255'],
             'address_line_two' => ['nullable', 'string', 'max:255'],
@@ -87,5 +89,22 @@ class UserController extends Controller
             'photo_path' => ['nullable', 'string', 'max:255'],
             'password' => [$user ? 'sometimes' : 'required', 'string', 'min:8'],
         ]);
+
+        if (! $isSuperadmin) {
+            $data['role'] = UserRole::Couple->value;
+        }
+
+        return $data;
+    }
+
+    private function isSuperadmin(Request $request): bool
+    {
+        $role = $request->user()?->role;
+
+        if ($role instanceof UserRole) {
+            return $role === UserRole::SuperAdmin;
+        }
+
+        return $role === UserRole::SuperAdmin->value;
     }
 }
