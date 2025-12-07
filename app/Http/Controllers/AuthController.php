@@ -27,7 +27,7 @@ class AuthController extends Controller
                 default => '/',
             };
 
-            return redirect()->intended($target);
+            return redirect($target);
         }
 
         return back()->withErrors([
