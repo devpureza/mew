@@ -7,7 +7,7 @@
     <div class="section__header cms-hero" style="margin-top:0;">
         <p class="section__subtitle" style="color: var(--color-elegancia);">Acesso Superadmin</p>
         <h1 class="section__title" style="color: var(--color-elegancia);">CMS MEW</h1>
-        <p style="color: #2b2b2b;">Gerencie usuários, casamentos e convidados. Use o menu para navegar.</p>
+        <p style="color: #2b2b2b;">Gerencie usuários, casamentos e convidados.</p>
     </div>
 
     <div class="grid services__grid cms-cards" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
