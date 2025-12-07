@@ -133,6 +133,41 @@ const helpers = {
     },
 };
 
+function updateCoupleSummary() {
+    const titleEl = helpers.qs('#summary-wedding-title');
+    if (!titleEl) return;
+    const dateEl = helpers.qs('#summary-wedding-date');
+    const locEl = helpers.qs('#summary-wedding-location');
+    const acceptedEl = helpers.qs('#summary-wedding-accepted');
+    const select = helpers.qs('#guest-wedding-select');
+    const selectedId = select?.value;
+
+    let wedding = null;
+    if (selectedId) {
+        wedding = state.weddings.find((w) => String(w.id) === String(selectedId));
+    }
+    if (!wedding && state.weddings.length > 0) {
+        wedding = state.weddings[0];
+    }
+
+    if (!wedding) {
+        titleEl.textContent = '--';
+        dateEl.textContent = '--';
+        locEl.textContent = '--';
+        acceptedEl.textContent = '--';
+        return;
+    }
+
+    titleEl.textContent = wedding.title ?? 'Casamento';
+    dateEl.textContent = helpers.formatDate(wedding.event_date);
+    locEl.textContent = wedding.location ?? '--';
+
+    const accepted = state.guests.filter(
+        (g) => String(g.wedding_id) === String(wedding.id) && g.status === 'accepted',
+    ).length;
+    acceptedEl.textContent = accepted;
+}
+
 function setStatus(selector, message, color = '#2b2b2b') {
     const el = helpers.qs(selector);
     if (el) {
@@ -270,6 +305,7 @@ async function fetchWeddings(render = true) {
     const { data } = await axios.get('/api/v1/weddings');
     state.weddings = data.data ?? data;
     if (render) renderWeddingsTable();
+    updateCoupleSummary();
 }
 
 function populateCoupleOptions() {
@@ -387,6 +423,7 @@ async function fetchGuests(render = true) {
         populateParentGuestSelect();
     }
     populateWeddingSelect();
+    updateCoupleSummary();
 }
 
 function populateWeddingSelect() {
@@ -401,6 +438,10 @@ function populateWeddingSelect() {
         if (current && current === String(w.id)) opt.selected = true;
         select.appendChild(opt);
     });
+    if (!select.value && state.weddings[0]) {
+        select.value = String(state.weddings[0].id);
+    }
+    updateCoupleSummary();
 }
 
 function populateParentGuestSelect() {
@@ -482,6 +523,8 @@ function bindGuestForm() {
     const form = helpers.qs('#guest-form');
     const addDependentBtn = helpers.qs('#add-dependent');
     const dependentsContainer = helpers.qs('#dependents-container');
+    const weddingSelect = helpers.qs('#guest-wedding-select');
+    weddingSelect?.addEventListener('change', updateCoupleSummary);
 
     function addDependentRow() {
         if (!dependentsContainer) return;
