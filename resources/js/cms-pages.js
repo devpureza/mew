@@ -415,20 +415,51 @@ function bindWeddingForm() {
 }
 
 // GUESTS
-async function fetchGuests(render = true) {
+async function fetchGuests(render = true, weddingId = null) {
     const { data } = await axios.get('/api/v1/guests');
-    state.guests = data.data ?? data;
+    let guests = data.data ?? data;
+    
+    // Filtra por casamento se especificado
+    if (weddingId) {
+        guests = guests.filter((g) => String(g.wedding_id) === String(weddingId));
+    }
+    
+    state.guests = guests;
     if (render) {
         renderGuestsTable();
-        populateParentGuestSelect();
+        populateParentGuestSelect(weddingId);
     }
     populateWeddingSelect();
     updateCoupleSummary();
+    updateGuestStats();
+}
+
+function updateGuestStats() {
+    const totalEl = helpers.qs('#stat-total');
+    const acceptedEl = helpers.qs('#stat-accepted');
+    const pendingEl = helpers.qs('#stat-pending');
+    const rejectedEl = helpers.qs('#stat-rejected');
+    
+    if (!totalEl) return;
+    
+    const total = state.guests.length;
+    const accepted = state.guests.filter((g) => g.status === 'accepted').length;
+    const pending = state.guests.filter((g) => g.status === 'pending').length;
+    const rejected = state.guests.filter((g) => g.status === 'rejected').length;
+    
+    totalEl.textContent = total;
+    acceptedEl.textContent = accepted;
+    pendingEl.textContent = pending;
+    rejectedEl.textContent = rejected;
 }
 
 function populateWeddingSelect() {
     const select = helpers.qs('#guest-wedding-select');
     if (!select) return;
+    
+    // Se for input hidden (página de guests com wedding específico), não popular
+    if (select.type === 'hidden') return;
+    
     const current = select.value;
     select.innerHTML = '<option value="">Selecione um casamento</option>';
     state.weddings.forEach((w) => {
@@ -444,12 +475,18 @@ function populateWeddingSelect() {
     updateCoupleSummary();
 }
 
-function populateParentGuestSelect() {
+function populateParentGuestSelect(weddingId = null) {
     const select = helpers.qs('#parent-guest-select');
     if (!select) return;
     const current = select.value;
-    select.innerHTML = '<option value="">Responsável</option>';
-    state.guests
+    select.innerHTML = '<option value="">Responsável (deixe vazio se for o responsável)</option>';
+    
+    let guests = state.guests;
+    if (weddingId) {
+        guests = guests.filter((g) => String(g.wedding_id) === String(weddingId));
+    }
+    
+    guests
         .filter((g) => g.is_head_of_family || g.cpf)
         .forEach((g) => {
             const opt = helpers.create('option');
@@ -464,18 +501,29 @@ function renderGuestsTable() {
     const container = helpers.qs('#guests-table');
     if (!container) return;
     container.innerHTML = '';
+    
+    const currentWeddingId = helpers.qs('#current-wedding-id')?.value || null;
+
+    if (state.guests.length === 0) {
+        container.innerHTML = '<p style="color: #666; padding: 1rem 0;">Nenhum convidado cadastrado neste casamento.</p>';
+        return;
+    }
 
     const table = helpers.create('table');
     table.style.width = '100%';
     table.style.borderCollapse = 'collapse';
     const thead = helpers.create('thead');
+    
+    // Se estamos na página de um casamento específico, não mostra coluna de casamento
+    const showWeddingColumn = !currentWeddingId;
+    
     thead.innerHTML = `<tr>
         <th style="text-align:left; padding: 6px;">Nome</th>
         <th style="text-align:left; padding: 6px;">CPF</th>
         <th style="text-align:left; padding: 6px;">Código</th>
         <th style="text-align:left; padding: 6px;">Status</th>
-        <th style="text-align:left; padding: 6px;">Casamento</th>
-        <th style="text-align:left; padding: 6px;">Pai/Responsável</th>
+        ${showWeddingColumn ? '<th style="text-align:left; padding: 6px;">Casamento</th>' : ''}
+        <th style="text-align:left; padding: 6px;">Responsável</th>
         <th style="padding:6px;">Ações</th>
     </tr>`;
     table.appendChild(thead);
@@ -488,7 +536,7 @@ function renderGuestsTable() {
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${g.cpf ?? '-'}</td>
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05); font-family: monospace;">${g.invitation_code ?? '-'}</td>
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05); text-transform: uppercase;">${helpers.statusLabel(g.status)}</td>
-            <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${g.wedding?.title ?? ''}</td>
+            ${showWeddingColumn ? `<td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${g.wedding?.title ?? ''}</td>` : ''}
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${g.parent_guest?.name ?? '-'}</td>
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05); text-align:right;">
                 <button data-guest-id="${g.id}" data-guest-name="${g.name}" class="btn-delete-guest" style="padding:6px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:8px; background:#fff;">Excluir</button>
@@ -506,15 +554,15 @@ function renderGuestsTable() {
             if (!id) return;
             const confirmed = await modalUi.show({
                 title: 'Excluir convidado?',
-                text: `Essa acao remove ${name}.`,
+                text: `Essa ação remove ${name}.`,
                 cancelText: 'Cancelar',
                 confirmText: 'Excluir',
                 confirmVariant: 'danger',
             });
             if (!confirmed) return;
             await axios.delete(`/api/v1/guests/${id}`);
-            modalUi.toast('Convidado excluido.', 'success');
-            await fetchGuests(true);
+            modalUi.toast('Convidado excluído.', 'success');
+            await fetchGuests(true, currentWeddingId);
         });
     });
 }
@@ -524,7 +572,11 @@ function bindGuestForm() {
     const addDependentBtn = helpers.qs('#add-dependent');
     const dependentsContainer = helpers.qs('#dependents-container');
     const weddingSelect = helpers.qs('#guest-wedding-select');
-    weddingSelect?.addEventListener('change', updateCoupleSummary);
+    
+    // Só adiciona listener de change se não for input hidden
+    if (weddingSelect && weddingSelect.type !== 'hidden') {
+        weddingSelect.addEventListener('change', updateCoupleSummary);
+    }
 
     function addDependentRow() {
         if (!dependentsContainer) return;
@@ -575,6 +627,10 @@ function bindGuestForm() {
     addDependentBtn?.addEventListener('click', addDependentRow);
 
     if (!form) return;
+    
+    // Pega o wedding_id do input hidden se existir
+    const currentWeddingId = helpers.qs('#current-wedding-id')?.value || null;
+    
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const fd = new FormData(form);
@@ -601,11 +657,17 @@ function bindGuestForm() {
         try {
             await axios.post('/api/v1/guests', payload);
             setStatus('#guest-form-status', 'Convidado salvo.', 'green');
+            modalUi.toast('Convidado salvo com sucesso!', 'success');
             form.reset();
+            // Restaura o wedding_id no input hidden
+            if (currentWeddingId) {
+                helpers.qs('#guest-wedding-select').value = currentWeddingId;
+            }
             dependentsContainer.innerHTML = '';
-            await fetchGuests(true);
+            await fetchGuests(true, currentWeddingId);
         } catch (err) {
-            setStatus('#guest-form-status', 'Erro ao salvar convidado. Verifique casamento/pai e CPF Ãºnico.', '#b84e00');
+            setStatus('#guest-form-status', 'Erro ao salvar convidado. Verifique casamento/pai e CPF único.', '#b84e00');
+            modalUi.toast('Erro ao salvar convidado.', 'error');
         }
     });
 }
@@ -626,12 +688,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         await fetchWeddings(true);
     }
 
+    if (page === 'guests-select') {
+        await fetchWeddings(false);
+        renderWeddingsSelectGrid();
+    }
+
     if (page === 'guests') {
+        const currentWeddingId = helpers.qs('#current-wedding-id')?.value;
         bindGuestForm();
         await fetchWeddings(false);
-        await fetchGuests(true);
-        populateWeddingSelect();
-        populateParentGuestSelect();
+        await fetchGuests(true, currentWeddingId);
+        updateWeddingPageHeader(currentWeddingId);
     }
 
     if (page === 'dashboard') {
@@ -647,3 +714,74 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
+function renderWeddingsSelectGrid() {
+    const container = helpers.qs('#weddings-grid');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (state.weddings.length === 0) {
+        const emptyCard = helpers.create('div', 'card card--surface');
+        emptyCard.style.padding = '2rem';
+        emptyCard.style.textAlign = 'center';
+        emptyCard.style.gridColumn = '1 / -1';
+        emptyCard.innerHTML = `
+            <p style="color: #666; margin-bottom: 1rem;">Nenhum casamento cadastrado.</p>
+            <a href="/cms/casamentos" class="btn btn--primary">Criar casamento</a>
+        `;
+        container.appendChild(emptyCard);
+        return;
+    }
+
+    state.weddings.forEach((w) => {
+        const card = helpers.create('a', 'card card--surface');
+        card.href = `/cms/convidados/${w.id}`;
+        card.style.textDecoration = 'none';
+        card.style.display = 'block';
+        card.style.transition = 'transform 120ms ease, box-shadow 120ms ease';
+        card.style.cursor = 'pointer';
+        
+        const couples = (w.couples || []).map((c) => c.name).join(' & ') || 'Sem casal definido';
+        
+        card.innerHTML = `
+            <p class="section__subtitle" style="color: var(--color-elegancia); margin-bottom: 0.25rem;">${helpers.formatDate(w.event_date)}</p>
+            <h3 class="service-card__title" style="color: var(--color-elegancia); margin-bottom: 0.5rem;">${w.title}</h3>
+            <p style="color: #2b2b2b; margin: 0.25rem 0; font-size: 0.95rem;">${couples}</p>
+            <p style="color: #666; margin: 0.25rem 0; font-size: 0.9rem;">${w.location || 'Local não definido'}</p>
+            <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid rgba(0,48,44,0.1);">
+                <span style="color: var(--color-elegancia); font-weight: 600; font-size: 0.9rem;">Ver convidados →</span>
+            </div>
+        `;
+        
+        card.addEventListener('mouseenter', () => {
+            card.style.transform = 'translateY(-2px)';
+            card.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+        });
+        card.addEventListener('mouseleave', () => {
+            card.style.transform = 'translateY(0)';
+            card.style.boxShadow = '';
+        });
+        
+        container.appendChild(card);
+    });
+}
+
+function updateWeddingPageHeader(weddingId) {
+    const titleEl = helpers.qs('#page-wedding-title');
+    const infoEl = helpers.qs('#page-wedding-info');
+    
+    if (!titleEl || !weddingId) return;
+    
+    const wedding = state.weddings.find((w) => String(w.id) === String(weddingId));
+    
+    if (!wedding) {
+        titleEl.textContent = 'Casamento não encontrado';
+        infoEl.textContent = '';
+        return;
+    }
+    
+    const couples = (wedding.couples || []).map((c) => c.name).join(' & ') || '';
+    
+    titleEl.textContent = wedding.title;
+    infoEl.textContent = `${helpers.formatDate(wedding.event_date)}${wedding.location ? ` · ${wedding.location}` : ''}${couples ? ` · ${couples}` : ''}`;
+}

@@ -5,23 +5,45 @@
 
 @section('content')
     <div class="section__header" style="margin-top:0;">
-        <p class="section__subtitle" style="color: var(--color-elegancia);">Convidados</p>
-        <h1 class="section__title" style="color: var(--color-elegancia);">Pais, filhos e status</h1>
-        <p style="color: #2b2b2b;">Cadastre responsáveis com CPF, dependentes sem CPF e status accepted/rejected/pending.</p>
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+            <a href="{{ route('cms.guests') }}" class="btn btn--outline" style="padding: 0.5rem 0.75rem; font-size: 0.9rem;">← Voltar</a>
+            <p class="section__subtitle" style="color: var(--color-elegancia); margin: 0;">Convidados</p>
+        </div>
+        <h1 class="section__title" style="color: var(--color-elegancia);" id="page-wedding-title">Carregando...</h1>
+        <p style="color: #2b2b2b;" id="page-wedding-info">--</p>
+    </div>
+
+    <input type="hidden" id="current-wedding-id" value="{{ $weddingId }}">
+
+    <div class="grid" style="gap: 1rem; margin-bottom: 1rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+        <div class="card card--surface">
+            <p class="section__subtitle" style="color: var(--color-elegancia); margin-bottom: 0.25rem;">Total</p>
+            <h3 class="service-card__title" style="color: var(--color-elegancia); font-size: 2rem; margin: 0;" id="stat-total">--</h3>
+        </div>
+        <div class="card card--surface">
+            <p class="section__subtitle" style="color: var(--color-elegancia); margin-bottom: 0.25rem;">Confirmados</p>
+            <h3 class="service-card__title" style="color: #2d8a5f; font-size: 2rem; margin: 0;" id="stat-accepted">--</h3>
+        </div>
+        <div class="card card--surface">
+            <p class="section__subtitle" style="color: var(--color-elegancia); margin-bottom: 0.25rem;">Pendentes</p>
+            <h3 class="service-card__title" style="color: #b4860b; font-size: 2rem; margin: 0;" id="stat-pending">--</h3>
+        </div>
+        <div class="card card--surface">
+            <p class="section__subtitle" style="color: var(--color-elegancia); margin-bottom: 0.25rem;">Recusados</p>
+            <h3 class="service-card__title" style="color: #b4332b; font-size: 2rem; margin: 0;" id="stat-rejected">--</h3>
+        </div>
     </div>
 
     <div class="card card--surface" style="margin-bottom: 1.5rem;">
-        <h3 class="service-card__title" style="color: var(--color-elegancia);">Criar convidado</h3>
+        <h3 class="service-card__title" style="color: var(--color-elegancia);">Adicionar convidado</h3>
         <form id="guest-form" style="margin-top: 1rem; display: grid; gap: 0.75rem;">
-            <select class="select" name="wedding_id" required id="guest-wedding-select">
-                <option value="">Selecione um casamento</option>
-            </select>
+            <input type="hidden" name="wedding_id" id="guest-wedding-select" value="{{ $weddingId }}">
             <input class="input" required name="name" placeholder="Nome do convidado">
             <input class="input" name="cpf" placeholder="CPF (para responsável)" maxlength="11">
             <input class="input" name="email" type="email" placeholder="Email (opcional)">
             <input class="input" name="phone" placeholder="Telefone (opcional)">
             <select class="select" name="parent_guest_id" id="parent-guest-select">
-                <option value="">Responsável</option>
+                <option value="">Responsável (deixe vazio se for o responsável)</option>
             </select>
             <select class="select" name="status">
                 <option value="pending">Pendente</option>
@@ -45,7 +67,7 @@
     </div>
 
     <div class="card card--surface">
-        <h3 class="service-card__title" style="color: var(--color-elegancia);">Lista</h3>
+        <h3 class="service-card__title" style="color: var(--color-elegancia);">Convidados deste casamento</h3>
         <div id="guests-table"></div>
     </div>
 @endsection
