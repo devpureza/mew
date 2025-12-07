@@ -11,6 +11,7 @@ Route::prefix('v1')->middleware(['web', 'auth'])->group(function (): void {
     Route::apiResource('users', UserController::class);
     Route::apiResource('weddings', WeddingController::class);
     Route::apiResource('guests', GuestController::class);
+    Route::patch('guests/{guest}/tags', [GuestController::class, 'updateTags'])->name('guests.updateTags');
 
     Route::get('metrics', MetricsController::class)->name('metrics.index');
 });

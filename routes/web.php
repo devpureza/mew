@@ -26,4 +26,5 @@ Route::middleware(['auth', 'role:superadmin'])->prefix('cms')->group(function ()
 
 Route::middleware(['auth', 'role:couple'])->prefix('cms')->group(function () {
     Route::view('/meu-casamento', 'cms.couple')->name('cms.couple');
+    Route::view('/marcacoes', 'cms.tags')->name('cms.tags');
 });

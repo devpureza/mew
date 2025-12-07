@@ -107,7 +107,7 @@ const modalUi = (() => {
         setTimeout(() => el.remove(), timeout);
     };
 
-    return { show, toast };
+    return { show, toast, ensureBase };
 })();
 
 const helpers = {
@@ -725,6 +725,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         populateParentGuestSelect(coupleWeddingId);
     }
 
+    if (page === 'tags') {
+        await fetchWeddings(false);
+        await fetchGuests(false);
+        initTagsPage();
+    }
+
 });
 
 function renderWeddingsSelectGrid() {
@@ -797,3 +803,231 @@ function updateWeddingPageHeader(weddingId) {
     titleEl.textContent = wedding.title;
     infoEl.textContent = `${helpers.formatDate(wedding.event_date)}${wedding.location ? ` · ${wedding.location}` : ''}${couples ? ` · ${couples}` : ''}`;
 }
+
+// ========== TAGS PAGE ==========
+
+const tagsHelpers = {
+    relationshipLabel(value) {
+        const map = {
+            mae: 'Mãe',
+            pai: 'Pai',
+            familia: 'Família',
+            amigos: 'Amigos',
+            trabalho: 'Trabalho',
+            outros: 'Outros',
+        };
+        return map[value] ?? '-';
+    },
+    godparentLabel(value) {
+        const map = {
+            padrinho: 'Padrinho',
+            madrinha: 'Madrinha',
+        };
+        return map[value] ?? '-';
+    },
+};
+
+function initTagsPage() {
+    // Garante que os estilos do modal estão carregados
+    modalUi.ensureBase();
+    
+    populateBelongsToSelect();
+    renderTagsTable();
+    updateTagsStats();
+    bindTagsFilters();
+    bindTagModal();
+}
+
+function populateBelongsToSelect() {
+    const select = helpers.qs('#tag-belongs-to');
+    if (!select) return;
+    
+    // Pega os casais do casamento
+    const wedding = state.weddings[0];
+    if (!wedding || !wedding.couples) return;
+    
+    wedding.couples.forEach((couple) => {
+        const opt = helpers.create('option');
+        opt.value = couple.id;
+        opt.textContent = couple.name;
+        select.appendChild(opt);
+    });
+}
+
+function updateTagsStats() {
+    const padrinhos = state.guests.filter((g) => g.godparent_role === 'padrinho').length;
+    const madrinhas = state.guests.filter((g) => g.godparent_role === 'madrinha').length;
+    const familia = state.guests.filter((g) => g.relationship === 'familia' || g.relationship === 'mae' || g.relationship === 'pai').length;
+    const amigos = state.guests.filter((g) => g.relationship === 'amigos').length;
+    
+    const padEl = helpers.qs('#stat-padrinhos');
+    const madEl = helpers.qs('#stat-madrinhas');
+    const famEl = helpers.qs('#stat-familia');
+    const amiEl = helpers.qs('#stat-amigos');
+    
+    if (padEl) padEl.textContent = padrinhos;
+    if (madEl) madEl.textContent = madrinhas;
+    if (famEl) famEl.textContent = familia;
+    if (amiEl) amiEl.textContent = amigos;
+}
+
+function getFilteredTagsGuests() {
+    const relationshipFilter = helpers.qs('#filter-relationship')?.value || '';
+    const godparentFilter = helpers.qs('#filter-godparent')?.value || '';
+    
+    return state.guests.filter((g) => {
+        // Filtro de relacionamento
+        if (relationshipFilter && g.relationship !== relationshipFilter) {
+            return false;
+        }
+        
+        // Filtro de padrinho/madrinha
+        if (godparentFilter) {
+            if (godparentFilter === 'none') {
+                if (g.godparent_role) return false;
+            } else {
+                if (g.godparent_role !== godparentFilter) return false;
+            }
+        }
+        
+        return true;
+    });
+}
+
+function renderTagsTable() {
+    const container = helpers.qs('#tags-table');
+    if (!container) return;
+    container.innerHTML = '';
+    
+    const guests = getFilteredTagsGuests();
+    
+    if (guests.length === 0) {
+        container.innerHTML = '<p style="color: #666; padding: 1rem 0;">Nenhum convidado encontrado com os filtros selecionados.</p>';
+        return;
+    }
+    
+    const wedding = state.weddings[0];
+    const couplesMap = {};
+    if (wedding?.couples) {
+        wedding.couples.forEach((c) => { couplesMap[c.id] = c.name; });
+    }
+
+    const table = helpers.create('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    const thead = helpers.create('thead');
+    thead.innerHTML = `<tr>
+        <th style="text-align:left; padding: 6px;">Nome</th>
+        <th style="text-align:left; padding: 6px;">Padrinho/Madrinha</th>
+        <th style="text-align:left; padding: 6px;">Relacionamento</th>
+        <th style="text-align:left; padding: 6px;">Parte de</th>
+        <th style="text-align:left; padding: 6px;">Status</th>
+        <th style="padding:6px;">Ações</th>
+    </tr>`;
+    table.appendChild(thead);
+
+    const tbody = helpers.create('tbody');
+    guests.forEach((g) => {
+        const belongsToName = g.belongs_to_user_id ? (couplesMap[g.belongs_to_user_id] || '-') : '-';
+        const godparentBadge = g.godparent_role 
+            ? `<span style="background: ${g.godparent_role === 'padrinho' ? '#0d423c' : '#8b5a7c'}; color: #fff; padding: 2px 8px; border-radius: 6px; font-size: 0.8rem;">${tagsHelpers.godparentLabel(g.godparent_role)}</span>`
+            : '-';
+        
+        const tr = helpers.create('tr');
+        tr.innerHTML = `
+            <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${g.name}</td>
+            <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${godparentBadge}</td>
+            <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${tagsHelpers.relationshipLabel(g.relationship)}</td>
+            <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${belongsToName}</td>
+            <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${helpers.statusLabel(g.status)}</td>
+            <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05); text-align:right;">
+                <button data-guest-id="${g.id}" class="btn-edit-tag" style="padding:6px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:8px; background:#fff; cursor: pointer;">Editar</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    container.appendChild(table);
+
+    // Bind edit buttons
+    document.querySelectorAll('.btn-edit-tag').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const guestId = btn.getAttribute('data-guest-id');
+            openTagModal(guestId);
+        });
+    });
+}
+
+function bindTagsFilters() {
+    const relationshipFilter = helpers.qs('#filter-relationship');
+    const godparentFilter = helpers.qs('#filter-godparent');
+    
+    relationshipFilter?.addEventListener('change', renderTagsTable);
+    godparentFilter?.addEventListener('change', renderTagsTable);
+}
+
+function openTagModal(guestId) {
+    const guest = state.guests.find((g) => String(g.id) === String(guestId));
+    if (!guest) return;
+    
+    const overlay = helpers.qs('#tag-modal-overlay');
+    const titleEl = helpers.qs('#tag-modal-title');
+    const guestIdInput = helpers.qs('#tag-guest-id');
+    const godparentSelect = helpers.qs('#tag-godparent-role');
+    const relationshipSelect = helpers.qs('#tag-relationship');
+    const belongsToSelect = helpers.qs('#tag-belongs-to');
+    
+    titleEl.textContent = `Marcações: ${guest.name}`;
+    guestIdInput.value = guest.id;
+    godparentSelect.value = guest.godparent_role || '';
+    relationshipSelect.value = guest.relationship || '';
+    belongsToSelect.value = guest.belongs_to_user_id || '';
+    
+    overlay.classList.add('is-open');
+}
+
+function closeTagModal() {
+    const overlay = helpers.qs('#tag-modal-overlay');
+    overlay.classList.remove('is-open');
+}
+
+function bindTagModal() {
+    const cancelBtn = helpers.qs('#tag-modal-cancel');
+    const overlay = helpers.qs('#tag-modal-overlay');
+    const form = helpers.qs('#tag-form');
+    
+    cancelBtn?.addEventListener('click', closeTagModal);
+    
+    overlay?.addEventListener('click', (e) => {
+        if (e.target === overlay) closeTagModal();
+    });
+    
+    form?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const guestId = helpers.qs('#tag-guest-id').value;
+        const godparentRole = helpers.qs('#tag-godparent-role').value || null;
+        const relationship = helpers.qs('#tag-relationship').value || null;
+        const belongsToUserId = helpers.qs('#tag-belongs-to').value || null;
+        
+        try {
+            await axios.patch(`/api/v1/guests/${guestId}/tags`, {
+                godparent_role: godparentRole,
+                relationship: relationship,
+                belongs_to_user_id: belongsToUserId,
+                is_godparent: !!godparentRole,
+            });
+            
+            modalUi.toast('Marcações salvas!', 'success');
+            closeTagModal();
+            
+            // Recarrega os guests
+            await fetchGuests(false);
+            renderTagsTable();
+            updateTagsStats();
+        } catch (err) {
+            modalUi.toast('Erro ao salvar marcações.', 'error');
+        }
+    });
+}
+

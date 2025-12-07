@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\GodparentRole;
+use App\Enums\GuestRelationship;
 use App\Enums\GuestStatus;
 use App\Models\Guest;
 use Illuminate\Http\JsonResponse;
@@ -107,6 +109,34 @@ class GuestController extends Controller
         $guest->delete();
 
         return response()->json(status: 204);
+    }
+
+    /**
+     * Atualiza apenas as marcações (tags) de um convidado.
+     * Couples podem usar este endpoint.
+     */
+    public function updateTags(Request $request, Guest $guest): JsonResponse
+    {
+        $user = auth()->user();
+        if (!$user) {
+            abort(401, 'Não autenticado.');
+        }
+        
+        $this->ensureCoupleCanTouchWedding($guest->wedding_id);
+
+        $godparentValues = collect(GodparentRole::cases())->pluck('value')->toArray();
+        $relationshipValues = collect(GuestRelationship::cases())->pluck('value')->toArray();
+
+        $data = $request->validate([
+            'godparent_role' => ['nullable', Rule::in($godparentValues)],
+            'relationship' => ['nullable', Rule::in($relationshipValues)],
+            'belongs_to_user_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
+            'is_godparent' => ['nullable', 'boolean'],
+        ]);
+
+        $guest->update($data);
+
+        return response()->json($guest->fresh());
     }
 
     private function validatedPayload(Request $request, ?Guest $guest = null): array

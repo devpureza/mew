@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\GodparentRole;
+use App\Enums\GuestRelationship;
 use App\Enums\GuestStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -22,14 +24,21 @@ class Guest extends Model
         'phone',
         'status',
         'is_head_of_family',
+        'is_godparent',
+        'godparent_role',
+        'relationship',
+        'belongs_to_user_id',
         'party_size',
         'notes',
     ];
 
     protected $casts = [
         'is_head_of_family' => 'boolean',
+        'is_godparent' => 'boolean',
         'party_size' => 'integer',
         'status' => GuestStatus::class,
+        'godparent_role' => GodparentRole::class,
+        'relationship' => GuestRelationship::class,
     ];
 
     protected static function booted(): void
@@ -69,5 +78,10 @@ class Guest extends Model
     public function children()
     {
         return $this->hasMany(Guest::class, 'parent_guest_id');
+    }
+
+    public function belongsToUser()
+    {
+        return $this->belongsTo(User::class, 'belongs_to_user_id');
     }
 }
