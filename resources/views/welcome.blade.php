@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MEW - Moments Ever Wanted | Assessoria de Casamentos</title>
-    <meta name="description" content="MEW - Moments Ever Wanted. Plataforma completa com landing e CMS para casamentos, gestão de convidados e confirmação por CPF.">
+    <meta name="description" content="MEW - Moments Ever Wanted. Um novo conceito em casamentos. Assessoria que une propósito, fluidez e sofisticação.">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,9 +33,8 @@
         <div class="container hero__container">
             <div class="hero__content">
                 <h1 class="hero__title">Moments <br>Ever <br><span>Wanted</span></h1>
-                <p class="hero__description">Landing + CMS para casamentos. Perfis ADMIN, SUPERADMIN, COUPLE e GUEST, com gestão de convidados pai/filho e confirmação por CPF.</p>
+                <p class="hero__description">MEW - Moments Ever Wanted. Um novo conceito em casamentos. Assessoria que une propósito, fluidez e sofisticação.</p>
                 <div class="hero__actions">
-                    <a href="/login" class="btn btn--primary">Entrar no CMS</a>
                     <a href="/confirmacao" class="btn btn--outline">Confirmar convite</a>
                 </div>
             </div>

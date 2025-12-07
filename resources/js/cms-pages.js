@@ -6,6 +6,110 @@ const state = {
     guests: [],
 };
 
+// Lightweight "sweet alert" style UI (custom, no deps)
+const modalUi = (() => {
+    const ensureBase = () => {
+        if (document.getElementById('mew-alert-style')) return;
+
+        const style = document.createElement('style');
+        style.id = 'mew-alert-style';
+        style.textContent = `
+        .mew-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 9999; }
+        .mew-overlay.is-open { display: flex; animation: mew-fade-in 120ms ease-out; }
+        .mew-modal { background: #fff; border-radius: 16px; padding: 24px; width: min(420px, calc(100% - 32px)); box-shadow: 0 20px 45px rgba(0,0,0,0.12); font-family: 'Manrope', system-ui, -apple-system, sans-serif; }
+        .mew-modal h3 { margin: 0 0 8px; font-size: 1.2rem; color: #0b1e20; }
+        .mew-modal p { margin: 0 0 16px; color: #2b2b2b; line-height: 1.5; }
+        .mew-modal .mew-actions { display: flex; gap: 10px; justify-content: flex-end; }
+        .mew-btn { border: none; border-radius: 10px; padding: 10px 14px; font-weight: 600; cursor: pointer; transition: transform 80ms ease, box-shadow 120ms ease; }
+        .mew-btn:active { transform: translateY(1px); }
+        .mew-btn-outline { background: #fff; border: 1px solid rgba(0,0,0,0.12); color: #0b1e20; }
+        .mew-btn-primary { background: linear-gradient(135deg, #0d423c, #0b302c); color: #fff; }
+        .mew-btn-danger { background: #b4332b; color: #fff; }
+        .mew-toast-stack { position: fixed; top: 18px; right: 18px; display: grid; gap: 10px; z-index: 10000; width: min(320px, calc(100% - 36px)); }
+        .mew-toast { padding: 12px 14px; border-radius: 12px; color: #0b1e20; background: #fff; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 15px 30px rgba(0,0,0,0.12); animation: mew-slide-in 150ms ease-out; }
+        .mew-toast.success { border-color: #2d8a5f; }
+        .mew-toast.error { border-color: #b4332b; }
+        .mew-toast.info { border-color: #0b302c; }
+        @keyframes mew-slide-in { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes mew-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        `;
+        document.head.appendChild(style);
+
+        const overlay = document.createElement('div');
+        overlay.id = 'mew-overlay';
+        overlay.className = 'mew-overlay';
+        overlay.innerHTML = `
+            <div class="mew-modal" role="dialog" aria-modal="true" aria-labelledby="mew-modal-title">
+                <h3 id="mew-modal-title"></h3>
+                <p id="mew-modal-text"></p>
+                <div class="mew-actions">
+                    <button type="button" id="mew-cancel" class="mew-btn mew-btn-outline">Cancelar</button>
+                    <button type="button" id="mew-confirm" class="mew-btn mew-btn-primary">OK</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const toastStack = document.createElement('div');
+        toastStack.id = 'mew-toast-stack';
+        toastStack.className = 'mew-toast-stack';
+        document.body.appendChild(toastStack);
+    };
+
+    const show = ({ title, text, confirmText = 'OK', cancelText = null, tone = 'info', confirmVariant = 'primary' }) =>
+        new Promise((resolve) => {
+            ensureBase();
+            const overlay = document.getElementById('mew-overlay');
+            const titleEl = document.getElementById('mew-modal-title');
+            const textEl = document.getElementById('mew-modal-text');
+            const cancelBtn = document.getElementById('mew-cancel');
+            const confirmBtn = document.getElementById('mew-confirm');
+
+            titleEl.textContent = title || '';
+            textEl.textContent = text || '';
+            confirmBtn.textContent = confirmText;
+
+            confirmBtn.classList.remove('mew-btn-primary', 'mew-btn-danger');
+            if (confirmVariant === 'danger') {
+                confirmBtn.classList.add('mew-btn-danger');
+            } else {
+                confirmBtn.classList.add('mew-btn-primary');
+            }
+
+            if (cancelText) {
+                cancelBtn.style.display = 'inline-flex';
+                cancelBtn.textContent = cancelText;
+            } else {
+                cancelBtn.style.display = 'none';
+            }
+
+            const close = (result) => {
+                overlay.classList.remove('is-open');
+                resolve(result);
+            };
+
+            cancelBtn.onclick = () => close(false);
+            confirmBtn.onclick = () => close(true);
+            overlay.onclick = (e) => {
+                if (e.target === overlay && cancelText) close(false);
+            };
+
+            overlay.classList.add('is-open');
+        });
+
+    const toast = (message, tone = 'info', timeout = 3800) => {
+        ensureBase();
+        const stack = document.getElementById('mew-toast-stack');
+        const el = document.createElement('div');
+        el.className = `mew-toast ${tone}`;
+        el.textContent = message;
+        stack.appendChild(el);
+        setTimeout(() => el.remove(), timeout);
+    };
+
+    return { show, toast };
+})();
+
 const helpers = {
     qs: (sel) => document.querySelector(sel),
     create(tag, className) {
@@ -18,6 +122,14 @@ const helpers = {
         const date = new Date(dateStr);
         if (Number.isNaN(date.getTime())) return dateStr;
         return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }).format(date);
+    },
+    statusLabel(status) {
+        const map = {
+            pending: 'Pendente',
+            accepted: 'Aceito',
+            rejected: 'Recusado',
+        };
+        return map[status] ?? status ?? '-';
     },
 };
 
@@ -84,7 +196,7 @@ function renderUsersTable() {
         <th style="text-align:left; padding: 6px;">Email</th>
         <th style="text-align:left; padding: 6px;">CPF</th>
         <th style="text-align:left; padding: 6px;">Papel</th>
-        <th style="padding: 6px;">AÃ§Ãµes</th>
+        <th style="padding: 6px;">Ações</th>
     </tr>`;
     table.appendChild(thead);
 
@@ -97,7 +209,7 @@ function renderUsersTable() {
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${u.cpf}</td>
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05); text-transform: uppercase;">${u.role}</td>
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05); text-align:right;">
-                <button data-user-id="${u.id}" class="btn-delete-user" style="padding:6px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:8px; background:#fff;">Excluir</button>
+                <button data-user-id="${u.id}" data-user-name="${u.name}" class="btn-delete-user" style="padding:6px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:8px; background:#fff;">Excluir</button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -108,8 +220,18 @@ function renderUsersTable() {
     document.querySelectorAll('.btn-delete-user').forEach((btn) => {
         btn.addEventListener('click', async () => {
             const id = btn.getAttribute('data-user-id');
+            const name = btn.getAttribute('data-user-name') || 'usuario';
             if (!id) return;
+            const confirmed = await modalUi.show({
+                title: 'Excluir usuario?',
+                text: `Essa acao remove ${name}.`,
+                cancelText: 'Cancelar',
+                confirmText: 'Excluir',
+                confirmVariant: 'danger',
+            });
+            if (!confirmed) return;
             await axios.delete(`/api/v1/users/${id}`);
+            modalUi.toast('Usuario excluido.', 'success');
             await fetchUsers(true);
         });
     });
@@ -133,10 +255,12 @@ function bindUserForm() {
         try {
             await axios.post('/api/v1/users', payload);
             setStatus('#user-form-status', 'Casal salvo.', 'green');
+            modalUi.toast('Casal salvo.', 'success');
             form.reset();
             await fetchUsers(true);
         } catch (err) {
             setStatus('#user-form-status', 'Erro ao salvar (CPF/email unicos?).', '#b84e00');
+            modalUi.toast('Erro ao salvar (CPF/email unicos?).', 'error');
         }
     });
 }
@@ -185,7 +309,7 @@ function renderWeddingsTable() {
         <th style="text-align:left; padding: 6px;">Data</th>
         <th style="text-align:left; padding: 6px;">Local</th>
         <th style="text-align:left; padding: 6px;">Casais</th>
-        <th style="padding:6px;">AÃ§Ãµes</th>
+        <th style="padding:6px;">Ações</th>
     </tr>`;
     table.appendChild(thead);
 
@@ -199,7 +323,7 @@ function renderWeddingsTable() {
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${w.location ?? ''}</td>
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${couples}</td>
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05); text-align:right;">
-                <button data-wedding-id="${w.id}" class="btn-delete-wedding" style="padding:6px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:8px; background:#fff;">Excluir</button>
+                <button data-wedding-id="${w.id}" data-wedding-title="${w.title}" class="btn-delete-wedding" style="padding:6px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:8px; background:#fff;">Excluir</button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -210,8 +334,18 @@ function renderWeddingsTable() {
     document.querySelectorAll('.btn-delete-wedding').forEach((btn) => {
         btn.addEventListener('click', async () => {
             const id = btn.getAttribute('data-wedding-id');
+            const title = btn.getAttribute('data-wedding-title') || 'casamento';
             if (!id) return;
+            const confirmed = await modalUi.show({
+                title: 'Excluir casamento?',
+                text: `Essa acao remove ${title} e seus relacionamentos.`,
+                cancelText: 'Cancelar',
+                confirmText: 'Excluir',
+                confirmVariant: 'danger',
+            });
+            if (!confirmed) return;
             await axios.delete(`/api/v1/weddings/${id}`);
+            modalUi.toast('Casamento excluido.', 'success');
             await fetchWeddings(true);
             await fetchGuests(true);
         });
@@ -273,7 +407,7 @@ function populateParentGuestSelect() {
     const select = helpers.qs('#parent-guest-select');
     if (!select) return;
     const current = select.value;
-    select.innerHTML = '<option value="">ResponsÃ¡vel (pai/mÃ£e)</option>';
+    select.innerHTML = '<option value="">Responsável</option>';
     state.guests
         .filter((g) => g.is_head_of_family || g.cpf)
         .forEach((g) => {
@@ -297,11 +431,11 @@ function renderGuestsTable() {
     thead.innerHTML = `<tr>
         <th style="text-align:left; padding: 6px;">Nome</th>
         <th style="text-align:left; padding: 6px;">CPF</th>
-        <th style="text-align:left; padding: 6px;">CÃ³digo</th>
+        <th style="text-align:left; padding: 6px;">Código</th>
         <th style="text-align:left; padding: 6px;">Status</th>
         <th style="text-align:left; padding: 6px;">Casamento</th>
-        <th style="text-align:left; padding: 6px;">Pai/ResponsÃ¡vel</th>
-        <th style="padding:6px;">AÃ§Ãµes</th>
+        <th style="text-align:left; padding: 6px;">Pai/Responsável</th>
+        <th style="padding:6px;">Ações</th>
     </tr>`;
     table.appendChild(thead);
 
@@ -316,7 +450,7 @@ function renderGuestsTable() {
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${g.wedding?.title ?? ''}</td>
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05);">${g.parent_guest?.name ?? '-'}</td>
             <td style="padding:6px; border-top:1px solid rgba(0,0,0,0.05); text-align:right;">
-                <button data-guest-id="${g.id}" class="btn-delete-guest" style="padding:6px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:8px; background:#fff;">Excluir</button>
+                <button data-guest-id="${g.id}" data-guest-name="${g.name}" class="btn-delete-guest" style="padding:6px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:8px; background:#fff;">Excluir</button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -327,8 +461,18 @@ function renderGuestsTable() {
     document.querySelectorAll('.btn-delete-guest').forEach((btn) => {
         btn.addEventListener('click', async () => {
             const id = btn.getAttribute('data-guest-id');
+            const name = btn.getAttribute('data-guest-name') || 'convidado';
             if (!id) return;
+            const confirmed = await modalUi.show({
+                title: 'Excluir convidado?',
+                text: `Essa acao remove ${name}.`,
+                cancelText: 'Cancelar',
+                confirmText: 'Excluir',
+                confirmVariant: 'danger',
+            });
+            if (!confirmed) return;
             await axios.delete(`/api/v1/guests/${id}`);
+            modalUi.toast('Convidado excluido.', 'success');
             await fetchGuests(true);
         });
     });
@@ -460,5 +604,3 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
-
-

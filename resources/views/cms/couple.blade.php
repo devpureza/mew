@@ -21,7 +21,7 @@
             <input class="input" name="email" type="email" placeholder="Email (opcional)">
             <input class="input" name="phone" placeholder="Telefone (opcional)">
             <select class="select" name="parent_guest_id" id="parent-guest-select">
-                <option value="">Responsável (pai/mãe)</option>
+                <option value="">Responsável</option>
             </select>
             <select class="select" name="status">
                 <option value="pending">Pendente</option>
