@@ -22,12 +22,17 @@ class InvitationController extends Controller
             'identifier' => ['required', 'string'],
         ]);
 
-        $guest = $this->findGuestByIdentifier($validated['identifier']);
+        $resolved = $this->resolveByIdentifier($validated['identifier']);
 
-        $head = $guest->parentGuest ?: $guest;
+        if ($resolved['mode'] === 'cpf') {
+            return response()->json(
+                $resolved['head']->load(['children', 'wedding:id,title,event_date'])
+            );
+        }
 
+        // codigo de convite: apenas o proprio convidado
         return response()->json(
-            $head->load(['children', 'wedding:id,title,event_date'])
+            $resolved['head']->load(['wedding:id,title,event_date'])
         );
     }
 
@@ -40,10 +45,8 @@ class InvitationController extends Controller
             'updates.*.status' => ['required', 'string', 'in:accepted,rejected,pending'],
         ]);
 
-        $guest = $this->findGuestByIdentifier($validated['identifier'])->load('children', 'parentGuest');
-        $head = $guest->parentGuest ?: $guest;
-
-        $allowedGuestIds = collect([$head->id])->merge($head->children->pluck('id'))->all();
+        $resolved = $this->resolveByIdentifier($validated['identifier']);
+        $allowedGuestIds = $resolved['allowed_ids'];
 
         foreach ($validated['updates'] as $update) {
             $guestId = (int) $update['guest_id'];
@@ -55,8 +58,8 @@ class InvitationController extends Controller
         }
 
         return response()->json([
-            'message' => 'Presença registrada com sucesso.',
-            'guest' => $head->fresh()->load('children'),
+            'message' => 'Presenca registrada com sucesso.',
+            'guest' => $resolved['head']->fresh()->load('children'),
         ]);
     }
 
@@ -67,10 +70,9 @@ class InvitationController extends Controller
             'status' => ['required', 'array'],
         ]);
 
-        $guest = $this->findGuestByIdentifier($validated['identifier'])->load('children', 'parentGuest');
-        $head = $guest->parentGuest ?: $guest;
-
-        $allowedGuestIds = collect([$head->id])->merge($head->children->pluck('id'))->all();
+        $resolved = $this->resolveByIdentifier($validated['identifier']);
+        $head = $resolved['head'];
+        $allowedGuestIds = $resolved['allowed_ids'];
         $allowedStatuses = collect(GuestStatus::cases())->pluck('value')->all();
 
         foreach ($validated['status'] as $guestId => $status) {
@@ -89,19 +91,49 @@ class InvitationController extends Controller
 
         return redirect()
             ->back()
-            ->with('status', "Presença de {$head->name} e família atualizada.");
+            ->with('status', "Presenca de {$head->name} e familia atualizada.");
     }
 
-    private function findGuestByIdentifier(string $identifier): Guest
+    /**
+     * CPF (apenas digitos, 11 chars) -> retorna familia completa.
+     * Codigo de convite -> retorna somente aquele convidado.
+     *
+     * @return array{mode: string, head: Guest, allowed_ids: array<int>}
+     */
+    private function resolveByIdentifier(string $identifier): array
     {
+        $onlyDigits = preg_replace('/\D/', '', $identifier);
+        $isCpf = strlen($onlyDigits) === 11;
+
+        if ($isCpf) {
+            $guest = Guest::query()
+                ->where('cpf', $onlyDigits)
+                ->with(['children', 'parentGuest', 'wedding'])
+                ->first();
+
+            abort_unless($guest, 404, 'Convidado nao encontrado.');
+
+            $head = $guest->parentGuest ?: $guest;
+            $allowedIds = collect([$head->id])->merge($head->children->pluck('id'))->all();
+
+            return [
+                'mode' => 'cpf',
+                'head' => $head,
+                'allowed_ids' => $allowedIds,
+            ];
+        }
+
         $guest = Guest::query()
-            ->where('cpf', $identifier)
-            ->orWhere('invitation_code', $identifier)
-            ->with(['children', 'parentGuest'])
+            ->where('invitation_code', $identifier)
+            ->with(['parentGuest', 'wedding'])
             ->first();
 
-        abort_unless($guest, 404, 'Convidado não encontrado.');
+        abort_unless($guest, 404, 'Convidado nao encontrado.');
 
-        return $guest;
+        return [
+            'mode' => 'code',
+            'head' => $guest,
+            'allowed_ids' => [$guest->id],
+        ];
     }
 }
