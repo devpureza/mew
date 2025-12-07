@@ -138,7 +138,6 @@ function updateCoupleSummary() {
     if (!titleEl) return;
     const dateEl = helpers.qs('#summary-wedding-date');
     const locEl = helpers.qs('#summary-wedding-location');
-    const acceptedEl = helpers.qs('#summary-wedding-accepted');
     const select = helpers.qs('#guest-wedding-select');
     const selectedId = select?.value;
 
@@ -152,20 +151,14 @@ function updateCoupleSummary() {
 
     if (!wedding) {
         titleEl.textContent = '--';
-        dateEl.textContent = '--';
-        locEl.textContent = '--';
-        acceptedEl.textContent = '--';
+        if (dateEl) dateEl.textContent = '--';
+        if (locEl) locEl.textContent = '--';
         return;
     }
 
     titleEl.textContent = wedding.title ?? 'Casamento';
-    dateEl.textContent = helpers.formatDate(wedding.event_date);
-    locEl.textContent = wedding.location ?? '--';
-
-    const accepted = state.guests.filter(
-        (g) => String(g.wedding_id) === String(wedding.id) && g.status === 'accepted',
-    ).length;
-    acceptedEl.textContent = accepted;
+    if (dateEl) dateEl.textContent = helpers.formatDate(wedding.event_date);
+    if (locEl) locEl.textContent = wedding.location ?? '--';
 }
 
 function setStatus(selector, message, color = '#2b2b2b') {
@@ -305,7 +298,6 @@ async function fetchWeddings(render = true) {
     const { data } = await axios.get('/api/v1/weddings');
     state.weddings = data.data ?? data;
     if (render) renderWeddingsTable();
-    updateCoupleSummary();
 }
 
 function populateCoupleOptions() {
@@ -419,18 +411,20 @@ async function fetchGuests(render = true, weddingId = null) {
     const { data } = await axios.get('/api/v1/guests');
     let guests = data.data ?? data;
     
-    // Filtra por casamento se especificado
+    // Filtra por casamento se especificado (para páginas que mostram guests de um wedding específico)
+    // Nota: Para couple, a API já retorna filtrado, mas filtramos novamente para garantir
     if (weddingId) {
         guests = guests.filter((g) => String(g.wedding_id) === String(weddingId));
     }
     
     state.guests = guests;
+    console.log('fetchGuests - weddingId:', weddingId, 'guests count:', guests.length, guests);
+    
     if (render) {
         renderGuestsTable();
         populateParentGuestSelect(weddingId);
     }
     populateWeddingSelect();
-    updateCoupleSummary();
     updateGuestStats();
 }
 
@@ -440,17 +434,18 @@ function updateGuestStats() {
     const pendingEl = helpers.qs('#stat-pending');
     const rejectedEl = helpers.qs('#stat-rejected');
     
-    if (!totalEl) return;
+    // Se nenhum elemento de stats existe, não faz nada
+    if (!totalEl && !acceptedEl && !pendingEl && !rejectedEl) return;
     
     const total = state.guests.length;
     const accepted = state.guests.filter((g) => g.status === 'accepted').length;
     const pending = state.guests.filter((g) => g.status === 'pending').length;
     const rejected = state.guests.filter((g) => g.status === 'rejected').length;
     
-    totalEl.textContent = total;
-    acceptedEl.textContent = accepted;
-    pendingEl.textContent = pending;
-    rejectedEl.textContent = rejected;
+    if (totalEl) totalEl.textContent = total;
+    if (acceptedEl) acceptedEl.textContent = accepted;
+    if (pendingEl) pendingEl.textContent = pending;
+    if (rejectedEl) rejectedEl.textContent = rejected;
 }
 
 function populateWeddingSelect() {
@@ -628,11 +623,14 @@ function bindGuestForm() {
 
     if (!form) return;
     
-    // Pega o wedding_id do input hidden se existir
-    const currentWeddingId = helpers.qs('#current-wedding-id')?.value || null;
+    // Pega o wedding_id do input hidden (pode ser #current-wedding-id ou #guest-wedding-select quando hidden)
+    const getWeddingId = () => {
+        return helpers.qs('#current-wedding-id')?.value || helpers.qs('#guest-wedding-select')?.value || null;
+    };
     
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const currentWeddingId = getWeddingId();
         const fd = new FormData(form);
         const dependents = [];
         dependentsContainer?.querySelectorAll('.dependent-row').forEach((row) => {
@@ -663,8 +661,9 @@ function bindGuestForm() {
             if (currentWeddingId) {
                 helpers.qs('#guest-wedding-select').value = currentWeddingId;
             }
-            dependentsContainer.innerHTML = '';
+            if (dependentsContainer) dependentsContainer.innerHTML = '';
             await fetchGuests(true, currentWeddingId);
+            populateParentGuestSelect(currentWeddingId);
         } catch (err) {
             setStatus('#guest-form-status', 'Erro ao salvar convidado. Verifique casamento/pai e CPF único.', '#b84e00');
             modalUi.toast('Erro ao salvar convidado.', 'error');
@@ -706,11 +705,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (page === 'couple') {
-        bindGuestForm();
         await fetchWeddings(false);
-        await fetchGuests(true);
-        populateWeddingSelect();
-        populateParentGuestSelect();
+        console.log('couple page - weddings:', state.weddings);
+        
+        // Para couple, pega automaticamente o primeiro (e único) casamento
+        const coupleWeddingId = state.weddings[0]?.id || null;
+        console.log('couple page - coupleWeddingId:', coupleWeddingId);
+        
+        if (coupleWeddingId) {
+            // Seta o wedding_id no input hidden
+            const weddingInput = helpers.qs('#guest-wedding-select');
+            if (weddingInput) {
+                weddingInput.value = coupleWeddingId;
+            }
+            
+            // Atualiza o resumo do casamento
+            updateCoupleSummary();
+        }
+        
+        bindGuestForm();
+        await fetchGuests(true, coupleWeddingId);
+        populateParentGuestSelect(coupleWeddingId);
     }
 
 });
