@@ -731,6 +731,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         initTagsPage();
     }
 
+    if (page === 'import') {
+        await initImportPage();
+    }
+
 });
 
 function renderWeddingsSelectGrid() {
@@ -1018,6 +1022,7 @@ function bindTagModal() {
                 is_godparent: !!godparentRole,
             });
             
+            
             modalUi.toast('Marcações salvas!', 'success');
             closeTagModal();
             
@@ -1031,3 +1036,643 @@ function bindTagModal() {
     });
 }
 
+// ========== IMPORT PAGE ==========
+
+const importState = {
+    file: null,
+    rawData: [],      // Dados crus da planilha [[row1], [row2], ...]
+    headers: [],      // Cabeçalhos detectados ou gerados
+    hasHeader: true,
+    mapping: {},      // { name: 0, relationship: 1, ... }
+    previewData: [],  // Dados mapeados para preview
+    couples: [],      // Lista de casais do wedding para o campo "belongs_to"
+};
+
+async function initImportPage() {
+    modalUi.ensureBase();
+    
+    // Buscar casais do wedding
+    await fetchWeddings(false);
+    const wedding = state.weddings[0];
+    if (wedding?.couples) {
+        importState.couples = wedding.couples;
+    }
+    
+    bindImportDropzone();
+    bindImportButtons();
+    bindTemplateDownload();
+}
+
+function bindTemplateDownload() {
+    helpers.qs('#btn-download-xlsx')?.addEventListener('click', () => downloadTemplate('xlsx'));
+    helpers.qs('#btn-download-csv')?.addEventListener('click', () => downloadTemplate('csv'));
+}
+
+async function downloadTemplate(format) {
+    try {
+        const XLSX = await import('xlsx');
+        
+        // Dados do template com exemplos
+        const templateData = [
+            ['Nome', 'Relacionamento', 'Padrinho/Madrinha', 'CPF', 'E-mail', 'Telefone'],
+            ['Maria Silva', 'Família', '', '12345678901', 'maria@email.com', '11999998888'],
+            ['João Santos', 'Amigos', 'Padrinho', '', 'joao@email.com', '11988887777'],
+            ['Ana Oliveira', 'Família', 'Madrinha', '98765432100', '', '11977776666'],
+            ['Pedro Costa', 'Trabalho', '', '', 'pedro@empresa.com', ''],
+            ['', '', '', '', '', ''], // Linha vazia para o usuário preencher
+        ];
+        
+        // Criar workbook
+        const ws = XLSX.utils.aoa_to_sheet(templateData);
+        
+        // Ajustar largura das colunas
+        ws['!cols'] = [
+            { wch: 25 }, // Nome
+            { wch: 15 }, // Relacionamento
+            { wch: 18 }, // Padrinho/Madrinha
+            { wch: 14 }, // CPF
+            { wch: 25 }, // E-mail
+            { wch: 15 }, // Telefone
+        ];
+        
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Convidados');
+        
+        // Gerar arquivo
+        if (format === 'xlsx') {
+            XLSX.writeFile(wb, 'modelo_convidados_mew.xlsx');
+        } else {
+            XLSX.writeFile(wb, 'modelo_convidados_mew.csv', { bookType: 'csv' });
+        }
+        
+        modalUi.toast('Template baixado com sucesso!', 'success');
+    } catch (err) {
+        console.error('Erro ao gerar template:', err);
+        modalUi.toast('Erro ao gerar o arquivo.', 'error');
+    }
+}
+
+function bindImportDropzone() {
+    const dropzone = helpers.qs('#dropzone');
+    const fileInput = helpers.qs('#file-input');
+    
+    if (!dropzone || !fileInput) return;
+    
+    dropzone.addEventListener('click', () => fileInput.click());
+    
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = 'var(--color-elegancia)';
+        dropzone.style.background = 'rgba(13, 66, 60, 0.05)';
+    });
+    
+    dropzone.addEventListener('dragleave', () => {
+        dropzone.style.borderColor = 'rgba(0,0,0,0.15)';
+        dropzone.style.background = 'transparent';
+    });
+    
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = 'rgba(0,0,0,0.15)';
+        dropzone.style.background = 'transparent';
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFileSelect(files[0]);
+        }
+    });
+    
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFileSelect(e.target.files[0]);
+        }
+    });
+    
+    helpers.qs('#btn-remove-file')?.addEventListener('click', resetImport);
+}
+
+function handleFileSelect(file) {
+    const validTypes = [
+        'text/csv',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ];
+    const validExtensions = ['.csv', '.xls', '.xlsx'];
+    
+    const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    
+    if (!validExtensions.includes(ext)) {
+        modalUi.toast('Formato de arquivo não suportado. Use CSV, XLS ou XLSX.', 'error');
+        return;
+    }
+    
+    importState.file = file;
+    
+    // Mostrar info do arquivo
+    helpers.qs('#file-name').textContent = file.name;
+    helpers.qs('#file-size').textContent = formatFileSize(file.size);
+    helpers.qs('#file-info').style.display = 'block';
+    helpers.qs('#dropzone').style.display = 'none';
+    
+    // Parsear arquivo
+    parseFile(file);
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' bytes';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function parseFile(file) {
+    try {
+        const XLSX = await import('xlsx');
+        
+        const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+        
+        // Para CSV, tentar detectar encoding
+        if (ext === '.csv') {
+            const textReader = new FileReader();
+            textReader.onload = (e) => {
+                try {
+                    let text = e.target.result;
+                    
+                    // Tentar corrigir encoding Latin-1 para UTF-8
+                    if (text.includes('Ã') || text.includes('Ã©') || text.includes('Ã£')) {
+                        // Texto parece estar em UTF-8 mas foi lido errado, tentar decodificar
+                        try {
+                            const bytes = new Uint8Array(text.split('').map(c => c.charCodeAt(0)));
+                            text = new TextDecoder('utf-8').decode(bytes);
+                        } catch (decodeErr) {
+                            // Ignora erro de decodificação
+                        }
+                    }
+                    
+                    const workbook = XLSX.read(text, { type: 'string' });
+                    processWorkbook(workbook, XLSX);
+                } catch (err) {
+                    console.error('Erro ao parsear CSV:', err);
+                    // Fallback: tentar como binary
+                    parseFileAsBinary(file, XLSX);
+                }
+            };
+            textReader.readAsText(file, 'UTF-8');
+        } else {
+            // Para XLS/XLSX, ler como array buffer
+            parseFileAsBinary(file, XLSX);
+        }
+    } catch (err) {
+        console.error('Erro ao importar XLSX:', err);
+        modalUi.toast('Erro ao carregar biblioteca de leitura.', 'error');
+    }
+}
+
+function parseFileAsBinary(file, XLSX) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array', codepage: 65001 }); // UTF-8
+            processWorkbook(workbook, XLSX);
+        } catch (err) {
+            console.error('Erro ao parsear:', err);
+            modalUi.toast('Erro ao ler o arquivo. Verifique se está correto.', 'error');
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function processWorkbook(workbook, XLSX) {
+    // Pegar primeira sheet
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '', raw: false });
+    
+    if (jsonData.length === 0) {
+        modalUi.toast('A planilha está vazia.', 'error');
+        resetImport();
+        return;
+    }
+    
+    // Limpar caracteres mal codificados
+    const cleanedData = jsonData.map(row => 
+        row.map(cell => fixEncoding(String(cell)))
+    );
+    
+    importState.rawData = cleanedData;
+    
+    // Detectar cabeçalhos
+    const firstRow = cleanedData[0];
+    if (Array.isArray(firstRow)) {
+        importState.headers = firstRow.map((h, i) => String(h || `Coluna ${i + 1}`));
+    }
+    
+    // Mostrar step de mapeamento
+    showMappingStep();
+}
+
+function fixEncoding(str) {
+    if (!str) return str;
+    
+    // Mapa de caracteres mal codificados (Latin-1 lido como UTF-8)
+    const fixes = {
+        'Ã©': 'é',
+        'Ã¡': 'á',
+        'Ã£': 'ã',
+        'Ãª': 'ê',
+        'Ã­': 'í',
+        'Ã³': 'ó',
+        'Ãº': 'ú',
+        'Ã§': 'ç',
+        'Ã': 'Á',
+        'Ã‰': 'É',
+        'Ã"': 'Ó',
+        'Ãš': 'Ú',
+        'Ã‡': 'Ç',
+        'Ã¢': 'â',
+        'Ã´': 'ô',
+        'Ã¼': 'ü',
+        'Ã±': 'ñ',
+        'Ã€': 'À',
+        'Ã‚': 'Â',
+        'ÃŠ': 'Ê',
+        'ÃŽ': 'Î',
+        'Ã"': 'Ô',
+        'Ã›': 'Û',
+        'Ã¨': 'è',
+        'Ã¬': 'ì',
+        'Ã²': 'ò',
+        'Ã¹': 'ù',
+    };
+    
+    let fixed = str;
+    for (const [bad, good] of Object.entries(fixes)) {
+        fixed = fixed.split(bad).join(good);
+    }
+    
+    return fixed;
+}
+
+function showMappingStep() {
+    helpers.qs('#step-mapping').style.display = 'block';
+    
+    // Popular selects de mapeamento
+    const selects = ['map-name', 'map-relationship', 'map-godparent', 'map-belongs-to', 'map-cpf', 'map-email', 'map-phone'];
+    
+    selects.forEach((selectId) => {
+        const select = helpers.qs(`#${selectId}`);
+        if (!select) return;
+        
+        // Limpar opções existentes (menos a primeira)
+        while (select.options.length > 1) {
+            select.remove(1);
+        }
+        
+        // Adicionar colunas
+        importState.headers.forEach((header, index) => {
+            const opt = document.createElement('option');
+            opt.value = index;
+            opt.textContent = header;
+            select.appendChild(opt);
+        });
+    });
+    
+    // Auto-detectar mapeamento
+    autoDetectMapping();
+}
+
+function autoDetectMapping() {
+    const namePatterns = ['nome', 'name', 'convidado', 'guest'];
+    const relationshipPatterns = ['relação', 'relacionamento', 'relationship', 'tipo', 'type'];
+    const godparentPatterns = ['padrinho', 'madrinha', 'godparent', 'godfather', 'godmother'];
+    const belongsPatterns = ['parte', 'lado', 'de quem', 'belongs', 'side'];
+    const cpfPatterns = ['cpf', 'documento', 'document'];
+    const emailPatterns = ['email', 'e-mail', 'mail'];
+    const phonePatterns = ['telefone', 'phone', 'celular', 'tel', 'whatsapp'];
+    
+    importState.headers.forEach((header, index) => {
+        const h = header.toLowerCase();
+        
+        if (namePatterns.some(p => h.includes(p))) {
+            helpers.qs('#map-name').value = index;
+        }
+        if (relationshipPatterns.some(p => h.includes(p))) {
+            helpers.qs('#map-relationship').value = index;
+        }
+        if (godparentPatterns.some(p => h.includes(p))) {
+            helpers.qs('#map-godparent').value = index;
+        }
+        if (belongsPatterns.some(p => h.includes(p))) {
+            helpers.qs('#map-belongs-to').value = index;
+        }
+        if (cpfPatterns.some(p => h.includes(p))) {
+            helpers.qs('#map-cpf').value = index;
+        }
+        if (emailPatterns.some(p => h.includes(p))) {
+            helpers.qs('#map-email').value = index;
+        }
+        if (phonePatterns.some(p => h.includes(p))) {
+            helpers.qs('#map-phone').value = index;
+        }
+    });
+}
+
+function bindImportButtons() {
+    helpers.qs('#has-header')?.addEventListener('change', (e) => {
+        importState.hasHeader = e.target.checked;
+    });
+    
+    helpers.qs('#btn-apply-mapping')?.addEventListener('click', applyMapping);
+    helpers.qs('#btn-back-mapping')?.addEventListener('click', () => {
+        helpers.qs('#step-preview').style.display = 'none';
+        helpers.qs('#step-mapping').style.display = 'block';
+    });
+    helpers.qs('#btn-import')?.addEventListener('click', doImport);
+    helpers.qs('#btn-new-import')?.addEventListener('click', () => {
+        resetImport();
+        helpers.qs('#step-success').style.display = 'none';
+        helpers.qs('#step-upload').style.display = 'block';
+    });
+}
+
+function applyMapping() {
+    const nameCol = helpers.qs('#map-name').value;
+    
+    if (nameCol === '') {
+        modalUi.toast('Selecione a coluna do nome do convidado.', 'error');
+        return;
+    }
+    
+    importState.mapping = {
+        name: nameCol !== '' ? parseInt(nameCol) : null,
+        relationship: helpers.qs('#map-relationship').value !== '' ? parseInt(helpers.qs('#map-relationship').value) : null,
+        godparent_role: helpers.qs('#map-godparent').value !== '' ? parseInt(helpers.qs('#map-godparent').value) : null,
+        belongs_to: helpers.qs('#map-belongs-to').value !== '' ? parseInt(helpers.qs('#map-belongs-to').value) : null,
+        cpf: helpers.qs('#map-cpf').value !== '' ? parseInt(helpers.qs('#map-cpf').value) : null,
+        email: helpers.qs('#map-email').value !== '' ? parseInt(helpers.qs('#map-email').value) : null,
+        phone: helpers.qs('#map-phone').value !== '' ? parseInt(helpers.qs('#map-phone').value) : null,
+    };
+    
+    // Processar dados
+    const startRow = importState.hasHeader ? 1 : 0;
+    importState.previewData = [];
+    
+    for (let i = startRow; i < importState.rawData.length; i++) {
+        const row = importState.rawData[i];
+        const name = row[importState.mapping.name];
+        
+        // Pular linhas sem nome
+        if (!name || String(name).trim() === '') continue;
+        
+        const guest = {
+            _rowIndex: i,
+            _valid: true,
+            _errors: [],
+            name: String(name).trim(),
+            relationship: importState.mapping.relationship !== null ? String(row[importState.mapping.relationship] || '').trim() : '',
+            godparent_role: importState.mapping.godparent_role !== null ? String(row[importState.mapping.godparent_role] || '').trim() : '',
+            belongs_to_text: importState.mapping.belongs_to !== null ? String(row[importState.mapping.belongs_to] || '').trim() : '',
+            belongs_to_user_id: null,
+            cpf: importState.mapping.cpf !== null ? String(row[importState.mapping.cpf] || '').trim() : '',
+            email: importState.mapping.email !== null ? String(row[importState.mapping.email] || '').trim() : '',
+            phone: importState.mapping.phone !== null ? String(row[importState.mapping.phone] || '').trim() : '',
+        };
+        
+        // Tentar mapear belongs_to para user_id
+        if (guest.belongs_to_text && importState.couples.length > 0) {
+            const match = importState.couples.find(c => 
+                c.name.toLowerCase().includes(guest.belongs_to_text.toLowerCase()) ||
+                guest.belongs_to_text.toLowerCase().includes(c.name.toLowerCase())
+            );
+            if (match) {
+                guest.belongs_to_user_id = match.id;
+            }
+        }
+        
+        // Validar
+        if (guest.name.length < 2) {
+            guest._valid = false;
+            guest._errors.push('Nome muito curto');
+        }
+        
+        if (guest.email && !guest.email.includes('@')) {
+            guest._valid = false;
+            guest._errors.push('E-mail inválido');
+        }
+        
+        importState.previewData.push(guest);
+    }
+    
+    // Mostrar preview
+    showPreviewStep();
+}
+
+function showPreviewStep() {
+    helpers.qs('#step-mapping').style.display = 'none';
+    helpers.qs('#step-preview').style.display = 'block';
+    
+    renderPreviewTable();
+    updatePreviewCounts();
+}
+
+function updatePreviewCounts() {
+    const total = importState.previewData.length;
+    const valid = importState.previewData.filter(g => g._valid).length;
+    
+    helpers.qs('#preview-count').textContent = `${total} registro(s) encontrado(s)`;
+    helpers.qs('#valid-count').textContent = valid;
+}
+
+function renderPreviewTable() {
+    const container = helpers.qs('#preview-table-container');
+    if (!container) return;
+    
+    const table = helpers.create('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.style.fontSize = '0.9rem';
+    
+    const thead = helpers.create('thead');
+    thead.innerHTML = `<tr style="position: sticky; top: 0; background: #f5f0e8;">
+        <th style="text-align:left; padding: 8px; border-bottom: 2px solid rgba(0,0,0,0.1);">#</th>
+        <th style="text-align:left; padding: 8px; border-bottom: 2px solid rgba(0,0,0,0.1);">Nome</th>
+        <th style="text-align:left; padding: 8px; border-bottom: 2px solid rgba(0,0,0,0.1);">Relacionamento</th>
+        <th style="text-align:left; padding: 8px; border-bottom: 2px solid rgba(0,0,0,0.1);">Padrinho/Madrinha</th>
+        <th style="text-align:left; padding: 8px; border-bottom: 2px solid rgba(0,0,0,0.1);">CPF</th>
+        <th style="text-align:left; padding: 8px; border-bottom: 2px solid rgba(0,0,0,0.1);">E-mail</th>
+        <th style="text-align:left; padding: 8px; border-bottom: 2px solid rgba(0,0,0,0.1);">Ações</th>
+    </tr>`;
+    table.appendChild(thead);
+    
+    const tbody = helpers.create('tbody');
+    
+    importState.previewData.forEach((guest, index) => {
+        const tr = helpers.create('tr');
+        tr.style.background = guest._valid ? 'transparent' : 'rgba(180, 51, 43, 0.08)';
+        
+        tr.innerHTML = `
+            <td style="padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.05);">${index + 1}</td>
+            <td style="padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.05);">
+                <input type="text" value="${escapeHtml(guest.name)}" data-index="${index}" data-field="name" class="preview-input" style="width: 100%; padding: 4px 8px; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px;">
+            </td>
+            <td style="padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.05);">
+                <select data-index="${index}" data-field="relationship" class="preview-input" style="width: 100%; padding: 4px 8px; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px;">
+                    <option value="">-</option>
+                    <option value="mae" ${guest.relationship.toLowerCase().includes('mãe') || guest.relationship === 'mae' ? 'selected' : ''}>Mãe</option>
+                    <option value="pai" ${guest.relationship.toLowerCase().includes('pai') ? 'selected' : ''}>Pai</option>
+                    <option value="familia" ${guest.relationship.toLowerCase().includes('famíl') || guest.relationship.toLowerCase().includes('famil') ? 'selected' : ''}>Família</option>
+                    <option value="amigos" ${guest.relationship.toLowerCase().includes('amig') ? 'selected' : ''}>Amigos</option>
+                    <option value="trabalho" ${guest.relationship.toLowerCase().includes('trabalh') || guest.relationship.toLowerCase().includes('coleg') ? 'selected' : ''}>Trabalho</option>
+                    <option value="outros" ${guest.relationship.toLowerCase().includes('outro') ? 'selected' : ''}>Outros</option>
+                </select>
+            </td>
+            <td style="padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.05);">
+                <select data-index="${index}" data-field="godparent_role" class="preview-input" style="width: 100%; padding: 4px 8px; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px;">
+                    <option value="">-</option>
+                    <option value="padrinho" ${guest.godparent_role.toLowerCase().includes('padrinho') ? 'selected' : ''}>Padrinho</option>
+                    <option value="madrinha" ${guest.godparent_role.toLowerCase().includes('madrinha') ? 'selected' : ''}>Madrinha</option>
+                </select>
+            </td>
+            <td style="padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.05);">
+                <input type="text" value="${escapeHtml(guest.cpf)}" data-index="${index}" data-field="cpf" class="preview-input" style="width: 100%; padding: 4px 8px; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px;" placeholder="00000000000">
+            </td>
+            <td style="padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.05);">
+                <input type="email" value="${escapeHtml(guest.email)}" data-index="${index}" data-field="email" class="preview-input" style="width: 100%; padding: 4px 8px; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px;">
+            </td>
+            <td style="padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.05);">
+                <button type="button" data-index="${index}" class="btn-remove-row" style="padding: 4px 8px; background: #b4332b; color: #fff; border: none; border-radius: 4px; cursor: pointer;">✕</button>
+            </td>
+        `;
+        
+        tbody.appendChild(tr);
+    });
+    
+    table.appendChild(tbody);
+    container.innerHTML = '';
+    container.appendChild(table);
+    
+    // Bind inputs
+    document.querySelectorAll('.preview-input').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const index = parseInt(e.target.dataset.index);
+            const field = e.target.dataset.field;
+            importState.previewData[index][field] = e.target.value;
+            
+            // Re-validar
+            validatePreviewRow(index);
+        });
+    });
+    
+    // Bind remove buttons
+    document.querySelectorAll('.btn-remove-row').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const index = parseInt(e.target.dataset.index);
+            importState.previewData.splice(index, 1);
+            renderPreviewTable();
+            updatePreviewCounts();
+        });
+    });
+}
+
+function validatePreviewRow(index) {
+    const guest = importState.previewData[index];
+    guest._valid = true;
+    guest._errors = [];
+    
+    if (!guest.name || guest.name.length < 2) {
+        guest._valid = false;
+        guest._errors.push('Nome muito curto');
+    }
+    
+    if (guest.email && !guest.email.includes('@')) {
+        guest._valid = false;
+        guest._errors.push('E-mail inválido');
+    }
+    
+    // Atualizar visual
+    const row = document.querySelector(`tr:has([data-index="${index}"])`);
+    if (row) {
+        row.style.background = guest._valid ? 'transparent' : 'rgba(180, 51, 43, 0.08)';
+    }
+    
+    updatePreviewCounts();
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+async function doImport() {
+    const validGuests = importState.previewData.filter(g => g._valid);
+    
+    if (validGuests.length === 0) {
+        modalUi.toast('Nenhum convidado válido para importar.', 'error');
+        return;
+    }
+    
+    const weddingId = helpers.qs('#wedding_id')?.value;
+    if (!weddingId) {
+        modalUi.toast('Erro: casamento não identificado.', 'error');
+        return;
+    }
+    
+    const confirmed = await modalUi.show({
+        title: 'Confirmar importação',
+        text: `Deseja importar ${validGuests.length} convidado(s)?`,
+        confirmText: 'Importar',
+        cancelText: 'Cancelar',
+        tone: 'info',
+    });
+    
+    if (!confirmed) return;
+    
+    try {
+        const payload = {
+            wedding_id: parseInt(weddingId),
+            guests: validGuests.map(g => ({
+                name: g.name,
+                relationship: g.relationship || null,
+                godparent_role: g.godparent_role || null,
+                belongs_to_user_id: g.belongs_to_user_id,
+                cpf: g.cpf || null,
+                email: g.email || null,
+                phone: g.phone || null,
+            })),
+        };
+        
+        const res = await axios.post('/api/v1/guests/import', payload);
+        
+        if (res.data.success) {
+            helpers.qs('#step-preview').style.display = 'none';
+            helpers.qs('#step-success').style.display = 'block';
+            helpers.qs('#success-message').textContent = res.data.message;
+            
+            if (res.data.errors && res.data.errors.length > 0) {
+                helpers.qs('#success-message').textContent += ` (${res.data.errors.length} erro(s))`;
+            }
+        } else {
+            modalUi.toast(res.data.message || 'Erro ao importar.', 'error');
+        }
+    } catch (err) {
+        console.error('Erro na importação:', err);
+        modalUi.toast('Erro ao importar convidados.', 'error');
+    }
+}
+
+function resetImport() {
+    importState.file = null;
+    importState.rawData = [];
+    importState.headers = [];
+    importState.mapping = {};
+    importState.previewData = [];
+    
+    helpers.qs('#file-input').value = '';
+    helpers.qs('#file-info').style.display = 'none';
+    helpers.qs('#dropzone').style.display = 'block';
+    helpers.qs('#step-mapping').style.display = 'none';
+    helpers.qs('#step-preview').style.display = 'none';
+}

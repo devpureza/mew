@@ -28,6 +28,7 @@
                     @if($role === 'couple')
                         <li class="nav__item"><a href="{{ route('cms.couple') }}" class="nav__link">Meu casamento</a></li>
                         <li class="nav__item"><a href="{{ route('cms.tags') }}" class="nav__link">Marcações</a></li>
+                        <li class="nav__item"><a href="{{ route('cms.import') }}" class="nav__link">Importar</a></li>
                     @endif
                     <li class="nav__item">
                         <form method="POST" action="{{ route('logout') }}">

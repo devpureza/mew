@@ -25,6 +25,21 @@ Route::middleware(['auth', 'role:superadmin'])->prefix('cms')->group(function ()
 });
 
 Route::middleware(['auth', 'role:couple'])->prefix('cms')->group(function () {
-    Route::view('/meu-casamento', 'cms.couple')->name('cms.couple');
-    Route::view('/marcacoes', 'cms.tags')->name('cms.tags');
+    Route::get('/meu-casamento', function () {
+        $wedding = auth()->user()->weddings()->with('couples')->first();
+        abort_unless($wedding, 404, 'Nenhum casamento vinculado.');
+        return view('cms.couple', ['wedding' => $wedding]);
+    })->name('cms.couple');
+    
+    Route::get('/marcacoes', function () {
+        $wedding = auth()->user()->weddings()->with('couples')->first();
+        abort_unless($wedding, 404, 'Nenhum casamento vinculado.');
+        return view('cms.tags', ['wedding' => $wedding]);
+    })->name('cms.tags');
+    
+    Route::get('/importar', function () {
+        $wedding = auth()->user()->weddings()->with('couples')->first();
+        abort_unless($wedding, 404, 'Nenhum casamento vinculado.');
+        return view('cms.import', ['wedding' => $wedding]);
+    })->name('cms.import');
 });
